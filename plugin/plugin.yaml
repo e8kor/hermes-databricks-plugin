@@ -1,0 +1,13 @@
+name: databricks
+version: 1.2.0
+description: "Query Databricks Unity Catalog and read large result sets. Connection identity comes from your Databricks CLI profiles (zero config when the CLI is logged in), with short-lived OAuth token minting and a chunked fetch path that streams multi-GB results to disk instead of into the context window."
+author: "Eugene Korniichuk"
+provides_tools:
+  - databricks_status
+  - databricks_query
+  - databricks_fetch
+  - databricks_catalog
+# Credentials are derived, never stored: a workspace names a Databricks CLI
+# profile (or nothing at all, adopting the CLI default) and the token is minted
+# per call. A static PAT via auth.token_env is the fallback, not the default.
+requires_env: []
