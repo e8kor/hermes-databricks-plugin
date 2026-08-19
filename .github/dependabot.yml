@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # The plugin has no Python dependencies by design, so the only moving parts
+  # worth watching are the pinned action SHAs in CI.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore"
+      include: scope
+    labels:
+      - dependencies
+    open-pull-requests-limit: 5

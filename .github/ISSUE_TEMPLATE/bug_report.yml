@@ -1,0 +1,73 @@
+name: Bug report
+description: Something misbehaves, lies about an outcome, or fails confusingly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The single most useful attachment is `hermes databricks status` output —
+        it reports workspaces, the auth mechanism, visible CLI profiles, and
+        whether a credential actually resolves. Redact the host if you must;
+        please don't redact the `auth` field.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what the plugin did instead of the right thing.
+      placeholder: |
+        Ran `databricks_fetch` on a 40M-row table; it reported success with
+        rows_written: 0 and left an empty file.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: >
+        The smallest sequence that shows it. A query against `samples.*` is ideal,
+        since anyone can run it.
+      placeholder: |
+        1. hermes databricks setup --profile prod --default
+        2. hermes databricks fetch "SELECT * FROM samples.nyctaxi.trips"
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: status
+    attributes:
+      label: "`hermes databricks status` output"
+      render: text
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: The `version:` field in `plugin/plugin.yaml`.
+      placeholder: "1.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python version, Databricks CLI version, cloud (AWS/Azure/GCP).
+      placeholder: "Ubuntu 24.04 (WSL2), Python 3.11, databricks CLI 1.12.1, Azure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Error text, warehouse type, table kind (Delta / Delta Sharing / view).

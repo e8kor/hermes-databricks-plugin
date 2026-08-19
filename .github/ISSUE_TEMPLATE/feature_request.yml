@@ -1,0 +1,58 @@
+name: Feature request
+description: Propose a capability, and where it should live.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A new **model tool** is the most expensive kind of addition here: its
+        schema ships on every API call the agent makes, for every user, whether
+        they use Databricks that turn or not. Capabilities that fit in the
+        existing tools, the `hermes databricks` CLI, or a skill are much easier
+        to say yes to.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you're trying to do, and where the plugin gets in the way today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What should happen instead. Concrete commands or tool calls help.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where should this live?
+      options:
+        - Extend an existing tool's parameters
+        - New CLI subcommand (`hermes databricks ...`)
+        - New or updated bundled skill
+        - New model tool (last resort)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead
+      description: >
+        Existing tools, raw `terminal` + the Databricks CLI, a managed MCP server —
+        and why each fell short.
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints acknowledged
+      options:
+        - label: This needs no third-party Python dependency (the plugin is stdlib-only).
+        - label: Any unbounded result would go to disk rather than into the context window.
+        - label: No credential or secret would appear in output or error messages.

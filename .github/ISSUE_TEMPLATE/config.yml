@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/e8kor/hermes-databricks-plugin/security/advisories/new
+    about: Report privately. Never open a public issue for a vulnerability.
+  - name: Hermes Agent itself
+    url: https://github.com/NousResearch/hermes-agent/issues
+    about: For agent core, config, or gateway problems unrelated to Databricks.
+  - name: Databricks CLI / API behaviour
+    url: https://docs.databricks.com/dev-tools/cli/index.html
+    about: If `databricks auth login` or the CLI itself is the thing failing.
