@@ -1,0 +1,31 @@
+; EditorConfig — https://editorconfig.org
+; Keeps diffs about the change rather than about whitespace, which matters more
+; than usual here: the plugin is stdlib-only and has no formatter to enforce.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.py]
+indent_size = 4
+max_line_length = 88
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.md]
+indent_size = 2
+; Markdown uses two trailing spaces as a hard line break.
+trim_trailing_whitespace = false
+
+[*.sh]
+indent_size = 2
+
+[Makefile]
+indent_style = tab

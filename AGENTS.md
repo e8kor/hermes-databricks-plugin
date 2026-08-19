@@ -9,7 +9,7 @@ paths, or local-only notes.
 1. `README.md` — what the plugin is and why it exists rather than the managed MCP server
 2. `CONTRIBUTING.md` — the rules that get a change merged
 3. `docs/architecture.md` — module map, request lifecycle, design invariants
-4. `CHANGELOG.md` — what shipped, and what is mid-flight under "In development"
+4. `CHANGELOG.md` — what shipped, under `Unreleased` and past releases
 
 Then the reference matching your task:
 
@@ -34,20 +34,40 @@ edits the running plugin.
 | `plugin/api.py` | Databricks REST: statements, chunk streaming, Unity Catalog |
 | `plugin/config.py` | Workspace resolution, token minting, token cache |
 | `plugin/profiles.py` | Databricks CLI profile discovery, warehouse listing |
+| `plugin/compute.py` | Cluster lifecycle, library install, UC Volume upload |
+| `plugin/jobs.py` | Job runs: submit, poll, output. Judges on `result_state` |
 | `plugin/cli.py` | The `hermes databricks` argparse tree |
+| `plugin/compute_cli.py` | `cluster`/`library`/`job` trees + the spend confirmations |
 | `plugin/slash.py` | `/databricks` dispatch and human-facing table renderers |
 | `plugin/skills/<name>/SKILL.md` | Bundled skills, registered as `databricks:<name>` |
 | `tests/` | pytest, stdlib only, no network |
 
 Dependency direction is one-way and should stay that way:
 `profiles ← config ← api ← tools ← __init__`, with `cli` and `slash` on top of
-`tools`. Nothing lower imports anything higher.
+`tools`. `compute` and `jobs` sit beside `tools` on `api`; `compute_cli` sits on
+both and is reached from `cli.handle_cli` via `handle_compute_cli`, which returns
+`None` for non-compute actions so dispatch falls through. Nothing lower imports
+anything higher.
 
 ## Verification
 
 ```bash
 python -m pytest tests/ -q          # no network; recorded response shapes
 python -m compileall -q plugin      # must pass on the declared 3.9 floor
+```
+
+The toolset-footprint invariant is worth checking by hand after touching
+`__init__.py`, because a stray `register_tool` is easy to add and expensive:
+
+```bash
+cd "$HERMES_HOME/hermes-agent" && ./venv/bin/python -c "
+import os, sys; sys.path.insert(0, '.')
+from hermes_cli.plugins import discover_plugins
+from tools.registry import registry
+discover_plugins(force=True)
+n = sorted(t for t in registry.get_all_tool_names() if 'databricks' in t)
+print(n); assert len(n) == 4, f'expected 4 tools, got {len(n)}'
+"
 ```
 
 CI runs both plus an `install.sh` smoke test. Run the tests before opening a PR;
@@ -68,8 +88,9 @@ These are invariants, not preferences. Breaking one makes the plugin lie.
 2. **Handlers return a JSON string and never raise** — success and failure alike.
    They accept `**kwargs`.
 3. **`databricks_status` is never config-gated.** It is the diagnostic and must
-   work precisely when everything else is broken. The other three tools are gated
-   on `check_fn=_check_configured`, so they vanish rather than fail confusingly.
+   work precisely when everything else is broken. The other three tools
+   (`databricks_catalog`, `databricks_query`, `databricks_fetch`) are gated on
+   `check_fn=_check_configured`, so they vanish rather than fail confusingly.
 4. **Never claim an outcome you did not observe.** Databricks APIs return 200 long
    before the work is done, and a statement can report `SUCCEEDED` while dropping
    rows. Poll to a terminal state, or return the raw observed state and say so.
@@ -85,6 +106,16 @@ These are invariants, not preferences. Breaking one makes the plugin lie.
    Hermes profile owns its own exports and state.
 9. **Behavioural config in `config.yaml` under `databricks:`, secret values in
    `.env`.** This mirrors Hermes core policy. `.env` holds secrets only.
+10. **Compute stays out of the model toolset.** Clusters, libraries and job runs
+   spend money, so they are CLI-only and the registry must keep exposing exactly
+   four `databricks_*` tools. Do not "helpfully" wrap `cluster start` or
+   `job submit` as a tool — the whole point is that an agent cannot start
+   billable compute from a tool call. See SECURITY.md.
+11. **Every billable mutation confirms, and a non-interactive shell refuses.**
+   `_confirm()` in `compute_cli.py` returns `False` when stdin is not a TTY and
+   `--yes` was not passed. Keep it failing closed: cron and CI must not be able
+   to provision compute by omission. `stop` is deliberately NOT gated — stopping
+   saves money, so a prompt there is an obstacle pretending to be a guard.
 
 ## Adding capability
 
@@ -92,6 +123,21 @@ A new **model tool** is the most expensive change here: its schema ships on ever
 API call the agent makes, for every user, whether they touch Databricks that turn
 or not. Prefer, in order: extend an existing tool's parameters → a CLI subcommand
 → a skill → a new tool.
+
+The compute surface is the worked example of choosing the cheap rung. Clusters,
+libraries and job runs are a large capability that added **zero** model tools:
+argparse trees in `compute_cli.py`, an API layer in `compute.py`/`jobs.py`, and
+one skill (`databricks-compute`) that teaches the agent to drive the CLI through
+`terminal`. Copy that shape for anything operational, destructive, or billable.
+A CLI subcommand needs:
+
+1. Parsers in the relevant `add_*_parsers()` (compute lives in `compute_cli.py`;
+   read-only verbs go in `cli.py`), grouped under the lifecycle headings so
+   `--help` reads top-to-bottom as the user's workflow.
+2. A handler returning an **exit code** — `0` only when the thing actually
+   succeeded. A job run that finished but failed must exit non-zero.
+3. Any billable action wrapped in `_confirm()`, with a `--yes` flag.
+4. A row in `docs/cli.md` and a mention in the skill that teaches the workflow.
 
 If it genuinely needs to be a tool:
 
@@ -166,3 +212,27 @@ Each of these is worked around in code because it was observed, not assumed:
   workspace to validate. Listings cache for 300s; `--refresh` after a login.
 - **Account-console hosts (`accounts.*`) have no SQL warehouses** and are skipped
   when auto-picking a profile.
+- **A `spark_python_task` cannot load its `python_file` from a UC Volume,** and
+  the platform blames permissions instead. Proven across 3 failed runs plus a
+  successful control: the same file at `/Workspace/...` succeeds on an identical
+  cluster spec while `/Volumes/...` fails even when the caller owns the volume,
+  holds explicit `READ_VOLUME`, and the cluster runs as `SINGLE_USER` with that
+  identity. `submit_run` rejects a Volume `python_file` up front. JAR libraries
+  from `/Volumes` are unaffected — only `python_file` is restricted.
+- **`libraries/install` returns HTTP 200 before installing anything.** The verdict
+  only appears in `libraries/cluster-status` (`PENDING` → `INSTALLING` →
+  `INSTALLED`/`FAILED`). Installing onto a TERMINATED cluster is *accepted* and
+  silently does nothing until the next start; `uninstall` needs a restart.
+- **A finished job run is not a successful one.** `life_cycle_state: TERMINATED`
+  with `result_state: FAILED` is the normal shape of "the Spark code threw".
+  `runs/get-output` also rejects a multi-task *parent* run id — use the task id.
+- **`autotermination_minutes: 0` is accepted and means never terminate.**
+  Single-node clusters additionally need `spark.databricks.cluster.profile`,
+  `spark.master`, and the `ResourceClass: SingleNode` tag, or they start and then
+  fail every task.
+- **The Files API returns `name`/`file_size`,** not the legacy DBFS `path`/`size`.
+  Reading the wrong keys makes a populated Volume directory look empty.
+- **Owning a UC Volume does not create a privilege assignment.**
+  `permissions/volume/<fqn>` came back `{}` for a volume created by that same
+  principal — ownership and grants are separate. Workspace-admin likewise does
+  not imply `WRITE VOLUME`.

@@ -8,6 +8,16 @@ rather than raising.
 configuration (`check_fn`), so on an unconfigured machine they're absent from the
 schema rather than present-and-failing.
 
+**Four is the whole list, deliberately.** Clusters, libraries and job runs are
+supported by this plugin but exposed **only** through the CLI
+(`hermes databricks cluster|library|job`, see [cli.md](cli.md)) — they are not
+tools and cannot be invoked by a model. Two reasons: every tool schema ships on
+every API call whether or not the agent touches Databricks that turn, and these
+operations spend money. An agent that needs them runs the CLI through its
+`terminal` tool, guided by the `databricks-compute` skill, which keeps the
+confirmation prompts in the loop. See
+[SECURITY.md](../SECURITY.md#spend-is-part-of-the-threat-model).
+
 - [Choosing between query and fetch](#choosing-between-query-and-fetch)
 - [databricks_status](#databricks_status)
 - [databricks_catalog](#databricks_catalog)

@@ -51,6 +51,34 @@ warehouse.
 | `the 'databricks' CLI is not on PATH` | Not installed, or installed for another shell | [Install it](https://docs.databricks.com/dev-tools/cli/install.html), or configure `--host` + `--token-env` instead — the CLI is optional |
 | `profiles` is slow | Expected — `auth profiles` contacts every workspace to validate | Results cache for 300s. Only pass `--refresh` when you just logged in |
 
+## Compute: clusters, libraries, job runs
+
+These failures deserve their own table because several of them **report the wrong
+cause**. The message names permissions or a missing file when the real problem is
+something else entirely.
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| `Cannot read the python file /Volumes/… lacks the required permissions` | **Not a permissions problem.** A `spark_python_task` cannot load its `python_file` from a UC Volume at all — verified while owning the volume, holding explicit `READ_VOLUME`, and running as `SINGLE_USER` with that identity | Import the script as a workspace file and pass that path: `databricks workspace import --format AUTO --file job.py /Users/<you>/job.py`, then `--python-file /Workspace/Users/<you>/job.py`. `job submit` now refuses a Volume path up front |
+| `Missing required field: query_id` | `--sql-query-id` takes a **saved query id**, not SQL text | Use `hermes databricks query <sql>` for ad-hoc SQL; a job run is the wrong tool for it |
+| Library "installed" but the class is missing at runtime | `libraries/install` returns HTTP 200 **before installing anything** — the verdict lands later | `hermes databricks library status <cluster_id>`. If you passed `--no-wait`, this check is mandatory, not optional |
+| `cluster … is TERMINATED; start it before installing libraries` | An install onto a stopped cluster is *accepted* by the API and then silently ignored until the next start | `hermes databricks cluster start <id>`, then install |
+| Library still loaded after `uninstall` | Uninstall only marks it for removal; the running JVM keeps it | `hermes databricks cluster restart <id>` |
+| `upload size mismatch … treat the remote file as corrupt` | A partial upload. The Files API accepts it, and the JAR then fails on an executor with an opaque class-loading error | Re-run the upload. The byte check is what turned a late, confusing failure into an immediate one |
+| HTTP 403 on `library upload` | Workspace-admin does **not** imply Unity Catalog `WRITE VOLUME`; the two systems are independent | Use a volume you own: `hermes databricks library create-volume <catalog> <schema> hermes_libs` |
+| `permissions/volume/<fqn>` returns `{}` for a volume you created | Ownership is not a privilege assignment | Grant explicitly if something downstream needs it: `databricks grants update volume <fqn> …` |
+| A Volume directory looks empty but has files | You read the legacy DBFS keys. The Files API returns `name`/`file_size`, not `path`/`size` — `databricks fs ls --output json` yields nulls on Volumes | `hermes databricks library ls /Volumes/…`, or `GET /api/2.0/fs/directories/<path>` |
+| Run finished but the result is wrong / nothing happened | `life_cycle_state: TERMINATED` with `result_state: FAILED` is the normal shape of "your Spark code threw" | `hermes databricks job show <run_id>` reports `succeeded` explicitly; `job output <run_id>` has the stack trace |
+| `run … is a multi-task run; fetch output per task run id` | `runs/get-output` rejects a **parent** run id | Use the task run id the error lists |
+| `pass either --cluster … or --spark-version …, not both` | Ambiguous compute: reusing a warm cluster and creating a new one mean different money | Pick one. This is refused locally, before any API call |
+| Cluster starts, then every task fails to schedule | A single-node cluster missing its required settings | Use `--workers 0`, which sets `spark.databricks.cluster.profile`, `spark.master`, and the `ResourceClass` tag for you |
+| `autotermination_minutes must be >= 10` | You passed a value below 10, or 0 | `0` means **never terminate** and bills until stopped by hand. Pick a real idle timeout |
+| `--policy is required` | `cluster create` refuses to run without a cluster policy | `hermes databricks cluster policies` — a policy is the only spend limit the workspace can actually enforce |
+| `refusing in a non-interactive shell; pass --yes` | A billable action was invoked from cron/CI/a pipe | Intentional: it fails closed. Add `--yes` only if you genuinely mean to provision compute unattended |
+| A run takes ~5 minutes before doing anything | Ephemeral job-cluster startup, not a hang | Reuse a warm cluster with `--cluster <id>` while iterating |
+| Custom JAR won't load on serverless | Serverless jobs compute does not accept custom JAR libraries | Use a classic cluster — ephemeral is fine |
+| Something is still billing | An all-purpose cluster stays up until autotermination fires | `hermes databricks cluster list` flags every RUNNING cluster; `job list --active` shows live runs. Stop with `cluster stop <id>` (never gated on confirmation) |
+
 ## When it's not the plugin
 
 Rule out the CLI first — if these fail, the plugin has nothing to work with:
@@ -59,6 +87,7 @@ Rule out the CLI first — if these fail, the plugin has nothing to work with:
 databricks auth profiles -o json          # what the plugin sees
 databricks auth token -p <profile>        # what the plugin mints
 databricks warehouses list -p <profile>   # whether a warehouse exists
+databricks clusters list -p <profile>     # whether compute APIs are reachable
 ```
 
 If `databricks auth token` fails, that's a Databricks CLI or workspace problem, not

@@ -30,6 +30,41 @@ plugin does not attempt to be a second authorization layer, and an agent with th
 acceptable, give the plugin a service principal scoped to what the agent should
 see, rather than your own workspace admin identity.
 
+### Spend is part of the threat model
+
+Databricks compute costs money, so "what can this do" includes "what can this
+bill". Two deliberate boundaries:
+
+- **No compute operation is reachable from a tool call.** The
+  `cluster` / `library` / `job` surface is CLI-only
+  (`hermes databricks cluster …`). The agent's toolset contains exactly four
+  tools — `databricks_status`, `databricks_catalog`, `databricks_query`,
+  `databricks_fetch` — and none of them can create a cluster, start one, or
+  submit a job run. An agent cannot start billable compute on your behalf,
+  because the capability is not in its schema at all.
+- **Interactive confirmation on every billable mutation.** `cluster create`,
+  `start`, `restart` and `job submit` prompt before acting; `--yes` skips the
+  prompt, and a **non-interactive shell refuses rather than proceeding**. That
+  last part matters for cron and CI: a scripted invocation that forgot `--yes`
+  fails closed instead of quietly provisioning a cluster.
+
+Residual risk worth naming honestly: anything that can run shell commands as you
+can run `hermes databricks cluster create --yes`. The CLI-only boundary protects
+against an agent *choosing* to spend money via its tools; it is not a sandbox
+against arbitrary shell execution. If an agent in your setup has an unrestricted
+`terminal` tool, treat its spend authority as equal to your own.
+
+Cost guardrails that are enforced in code rather than documented as advice:
+
+- `cluster create` requires an explicit `--policy`, so workspace cluster policies
+  (size, instance type, spend caps) always apply.
+- `autotermination_minutes` below 10 is refused. The API accepts `0`, which means
+  *never terminate* — the most expensive single mistake available here.
+- `cluster list` flags every RUNNING cluster, and `job list --active` shows runs
+  that are still billing.
+- An ephemeral job cluster is the default for `job submit`; it is torn down when
+  the run ends, so a forgotten cluster is not the default outcome.
+
 ## Credential handling
 
 Design choices that exist specifically for this:
@@ -72,3 +107,12 @@ Design choices that exist specifically for this:
   fails cheaply.
 - Keep `databricks_fetch` exports out of any directory you sync or back up
   automatically.
+- Attach a restrictive cluster policy to the identity the agent uses, and pass its
+  id to `cluster create`. A policy is the only spend limit the workspace can
+  actually enforce; everything this plugin does is advisory by comparison.
+- If you run `hermes databricks` from cron or CI, do **not** reflexively add
+  `--yes` to compute commands. The non-interactive refusal is a safety net; wiring
+  around it converts a mistake into a provisioned cluster.
+- Uploaded libraries live in a Unity Catalog Volume you name. Grant `WRITE VOLUME`
+  on a purpose-made volume (`… .default.hermes_libs`) rather than reusing one that
+  holds data — a JAR path is also a data path.

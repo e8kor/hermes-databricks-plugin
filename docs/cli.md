@@ -181,6 +181,7 @@ hermes databricks cluster start|restart|stop <cluster_id> [--no-wait]
 | `--workers` | `0` | `0` = single node (sets the required spark_conf + tag) |
 | `--autotermination` | `30` | Idle minutes before auto-stop. **Below 10 is refused** |
 | `--security-mode` | — | e.g. `SINGLE_USER`, `USER_ISOLATION` |
+| `--single-user` | — | Owning principal for `SINGLE_USER` mode (an email or service-principal id) |
 | `--wait` / `--no-wait` | varies | `start`/`restart` wait by default; `stop` does not |
 | `--yes` | off | Skip the confirmation prompt |
 
