@@ -33,6 +33,7 @@ _SKILLS = (
     "databricks-workspace-setup",
     "databricks-sql-authoring",
     "databricks-bulk-export",
+    "databricks-compute",
     "databricks-troubleshooting",
 )
 

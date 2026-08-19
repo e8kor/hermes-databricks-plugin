@@ -16,21 +16,61 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `SECURITY.md`, this changelog, issue and pull request templates.
 - GitHub Actions CI: test suite on Python 3.9–3.12 plus a byte-compile check of
   every plugin module.
+- **Compute surface — clusters, libraries, and Spark job runs.** CLI-only
+  (`hermes databricks cluster|library|job`), adding **zero** model tools: this
+  work spends money, so nothing in a conversation can start billable compute via
+  a tool call. New modules `plugin/compute.py` (cluster lifecycle, library
+  install, UC Volume upload), `plugin/jobs.py` (run submit/poll/output), and
+  `plugin/compute_cli.py` (the argparse trees plus the confirmation layer), and a
+  sixth bundled skill, `databricks:databricks-compute`.
+  - Spend guardrails: `cluster create` requires an explicit `--policy`, refuses
+    `autotermination_minutes < 10` (0 means *never terminate*), and every
+    billable mutation confirms interactively — a non-interactive shell refuses
+    rather than proceeding. `cluster list` flags every RUNNING cluster.
+  - Correctness over API acceptance, because several of these endpoints return
+    200 long before the work is done or succeeded:
+    - `libraries/install` is polled to a terminal state; a `FAILED` install
+      raises instead of being reported as success.
+    - Job runs are judged on `result_state`, never on having finished — a
+      `TERMINATED` + `FAILED` run exits non-zero with its stack trace.
+    - Volume uploads verify the remote byte count against the local one.
+  - Documented in `docs/cli.md` (COMPUTE section), `docs/skills.md`, and
+    `docs/architecture.md`.
+- 82 new tests (126 total, still stdlib + pytest with no network), including
+  regression tests for each live-observed failure below.
+
+### Fixed
+
+Three platform behaviours found by running against a real Azure workspace, all
+of which produce misleading errors and are now either prevented or re-labelled:
+
+- **A `spark_python_task` cannot load its `python_file` from a UC Volume.** It
+  fails with *"Cannot read the python file … lacks the required permissions"*
+  even when the caller owns the volume, holds explicit `READ_VOLUME`, can list
+  the file over the Files API, and the cluster runs as `SINGLE_USER` with that
+  identity. The identical file at `/Workspace/…` succeeds on the same cluster
+  spec, so the constraint is the path type, not access. `job submit` now rejects
+  a Volume `python_file` up front instead of spending ~5 minutes of cluster
+  startup to reach a wrong error. JAR libraries from `/Volumes` are unaffected.
+- **A `sql_task` requires a saved `query_id`,** not inline SQL, which fails with
+  `Missing required field: query_id`. The flag is `--sql-query-id`; ad-hoc SQL
+  belongs in `query`/`fetch`.
+- **`hermes databricks job submit` silently dropped `--spark-version` when
+  `--cluster` was also given,** hiding a real mistake about where the code ran
+  and what it cost. Ambiguous compute is now refused locally, before any API
+  call.
+
+Also worth recording: the Files API returns `name`/`file_size`, not the legacy
+DBFS `path`/`size` (reading the wrong keys yields a listing of `None`s that looks
+empty), and owning a UC Volume does **not** create an explicit privilege
+assignment — `permissions/volume/<fqn>` came back `{}` for a volume created by
+that same principal.
 
 ### Changed
 
 - `README.md` restructured around badges, a table of contents, a two-command
   quickstart, and links out to `docs/` instead of carrying every detail inline.
-
-### In development
-
-Landing on `main` but not yet documented in `docs/` or covered by the tool tables
-above: cluster lifecycle, library installation, UC Volume upload
-(`plugin/compute.py`), job-run submission and polling (`plugin/jobs.py`), their CLI
-surface (`plugin/compute_cli.py`), and the `databricks-compute` skill. These
-modules report *observed* state rather than API acceptance, because
-`clusters/start` and `libraries/install` both return 200 long before anything is
-actually done.
+- The CLI lifecycle grouping is now CONNECT → EXPLORE → QUERY → COMPUTE.
 
 ## [1.2.0] - 2026-08-18
 

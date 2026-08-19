@@ -151,6 +151,103 @@ Auto-generated paths land in `$HERMES_HOME/databricks-exports/` as
 `query-YYYYmmdd-HHMMSS.<fmt>`. Check `rows_written` against `total_rows` in the
 output — they should match.
 
+## COMPUTE
+
+Clusters, libraries, and job runs. **CLI only** — these cost money, so there are
+no model tools for them and nothing in a conversation can start billable compute
+via a tool call. Every billable mutation confirms interactively; `--yes` skips
+the prompt (and is required in a non-interactive shell, where the default is to
+refuse).
+
+### `hermes databricks cluster <verb>`
+
+```bash
+hermes databricks cluster list [--mine]      # flags every RUNNING cluster
+hermes databricks cluster show <cluster_id>  # includes termination_reason
+hermes databricks cluster policies           # policy ids, needed by create
+hermes databricks cluster node-types [--limit N]   # cheapest first
+hermes databricks cluster versions [--all]        # LTS runtimes by default
+
+hermes databricks cluster create <name> \
+    --spark-version 17.3.x-scala2.13 --node-type Standard_D4ds_v5 \
+    --policy <policy_id> [--workers N] [--autotermination M] [--wait]
+
+hermes databricks cluster start|restart|stop <cluster_id> [--no-wait]
+```
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--policy` | — | **Required** on `create`. A policy caps size and cost |
+| `--workers` | `0` | `0` = single node (sets the required spark_conf + tag) |
+| `--autotermination` | `30` | Idle minutes before auto-stop. **Below 10 is refused** |
+| `--security-mode` | — | e.g. `SINGLE_USER`, `USER_ISOLATION` |
+| `--wait` / `--no-wait` | varies | `start`/`restart` wait by default; `stop` does not |
+| `--yes` | off | Skip the confirmation prompt |
+
+`start` on a RUNNING cluster and `stop` on a TERMINATED one are no-ops, not
+errors — the raw API 400s on both. `restart` on a TERMINATED cluster falls
+through to `start`, since the intent is the same.
+
+### `hermes databricks library <verb>`
+
+```bash
+hermes databricks library create-volume <catalog> <schema> <name>
+hermes databricks library upload <local_path> /Volumes/<cat>/<schema>/<vol>/<file>
+hermes databricks library ls /Volumes/<cat>/<schema>/<vol>
+hermes databricks library rm /Volumes/.../<file> [--yes]
+
+hermes databricks library install <cluster_id> --jar /Volumes/.../lib.jar
+hermes databricks library status <cluster_id>       # the REAL verdict
+hermes databricks library uninstall <cluster_id> --jar /Volumes/.../lib.jar
+```
+
+`install` accepts exactly one of `--jar`, `--whl`, `--pypi`, `--maven`, requires
+the cluster to be RUNNING, and waits for a terminal install state by default —
+`libraries/install` returns HTTP 200 before installing anything, so `--no-wait`
+means you *must* follow up with `status`. `upload` verifies the remote byte count
+against the local one and fails on a mismatch. `uninstall` only marks the library
+for removal; restart the cluster to actually drop it.
+
+### `hermes databricks job <verb>`
+
+```bash
+# ephemeral job cluster (default): created for the run, torn down after it
+hermes databricks job submit --name smoke \
+    --spark-version 17.3.x-scala2.13 --node-type Standard_D4ds_v5 \
+    --python-file /Workspace/Users/<you>/job.py
+
+# reuse a warm cluster for iteration (it keeps billing afterwards)
+hermes databricks job submit --cluster <cluster_id> \
+    --main-class com.x.Main --jar /Volumes/.../lib.jar --param --flag
+
+hermes databricks job show <run_id>       # state + explicit `succeeded`
+hermes databricks job output <run_id>     # notebook result, logs, stack trace
+hermes databricks job list [--active]     # --active = still billing
+hermes databricks job cancel <run_id>
+```
+
+| Flag | Meaning |
+|---|---|
+| `--cluster` | Reuse an existing cluster instead of an ephemeral one |
+| `--spark-version` + `--node-type` | Ephemeral cluster spec (mutually exclusive with `--cluster`) |
+| `--notebook` / `--python-file` / `--main-class` / `--sql-query-id` | The task; exactly one |
+| `--jar` / `--whl` / `--pypi` / `--maven` | Task libraries, repeatable |
+| `--param` | Task parameter, repeatable |
+| `--timeout` | Run timeout in seconds (default 3600) |
+| `--no-wait` | Submit and return the run id instead of polling |
+
+Two traps the reference cannot make disappear, only surface:
+
+- **`--python-file` must be a `/Workspace/...` path, not `/Volumes/...`.** A
+  Volume python_file fails with a permissions error even when you own the
+  volume; `submit` rejects it up front. JAR libraries from `/Volumes` are fine.
+- **`--sql-query-id` takes a saved query id, not SQL text.** Inline SQL fails
+  with `Missing required field: query_id`; use `query`/`fetch` for ad-hoc SQL.
+
+Exit code is 0 only when the run reports `result_state: SUCCESS`. A run that
+merely *finished* (`TERMINATED` + `FAILED`) exits non-zero and prints the
+failure summary plus the stack trace.
+
 ## Slash command
 
 ```

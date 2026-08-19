@@ -14,6 +14,7 @@ skill_view(name="databricks:databricks")
 | `databricks-workspace-setup` | Connecting, multi-workspace, CI or service principals |
 | `databricks-sql-authoring` | Writing SQL: dialect, exploration order, cost control |
 | `databricks-bulk-export` | The result is large, or headed for on-disk analysis |
+| `databricks-compute` | Clusters, libraries, running Spark code as a job |
 | `databricks-troubleshooting` | Something failed and the cause isn't obvious |
 
 Each declares `platforms: [linux, macos, windows]`, `category: data`, and
@@ -24,6 +25,15 @@ Each declares `platforms: [linux, macos, windows]`, `category: data`, and
 The entry point. Its job is routing: choosing the right tool for the expected
 result size, and knowing that `databricks_status` is the first move when anything
 misbehaves. If you only ever load one, it's this.
+
+## databricks-compute
+
+Clusters, library upload/install, and Spark job runs — the billable surface.
+Load it before touching compute, because the failure modes here are unusually
+misleading: `libraries/install` returns HTTP 200 before installing anything, a
+finished run is not a successful run, and a `spark_python_task` cannot read its
+`python_file` from a UC Volume (the platform blames permissions instead). Also
+covers the spend guardrails and how to spot orphaned running clusters.
 
 ## databricks-workspace-setup
 

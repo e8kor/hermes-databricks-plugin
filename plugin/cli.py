@@ -14,6 +14,7 @@ from typing import Any, Dict
 from . import profiles as _profiles
 from . import slash as _slash
 from . import tools as _tools
+from .compute_cli import add_compute_parsers, handle_compute_cli
 
 
 def setup_parser(subparser) -> None:
@@ -79,6 +80,9 @@ def setup_parser(subparser) -> None:
     f_p.add_argument("--schema", help="Default schema")
     f_p.add_argument("--workspace", help="Workspace name")
     f_p.add_argument("--json", action="store_true", help="Emit raw JSON")
+
+    # ── COMPUTE / LIBRARIES / JOBS ────────────────────────────────────────
+    add_compute_parsers(actions)
 
 
 def _config_set(key: str, value: str) -> bool:
@@ -200,6 +204,12 @@ def _print_or_json(payload: Dict[str, Any], renderer, as_json: bool) -> int:
 def handle_cli(args) -> int:
     """Dispatch ``hermes databricks <action>``."""
     action = getattr(args, "databricks_action", None)
+
+    # Compute actions (cluster/library/job) live in their own module because
+    # they spend money and carry a confirmation layer.
+    handled = handle_compute_cli(args)
+    if handled is not None:
+        return handled
 
     if action == "setup":
         return _cmd_setup(args)

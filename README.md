@@ -143,9 +143,10 @@ hermes databricks library install <cluster_id> --jar /Volumes/.../mylib.jar
 hermes databricks library status <cluster_id>        # the REAL install verdict
 
 # run Spark code — ephemeral job cluster by default, dies when the run ends
+# note: a python entry point must be a WORKSPACE file, not a Volume file
 hermes databricks job submit --name smoke \
     --spark-version 17.3.x-scala2.13 --node-type Standard_D4ds_v5 \
-    --python-file /Volumes/main/default/hermes_libs/job.py
+    --python-file /Workspace/Users/you@example.com/job.py
 hermes databricks job submit --cluster <id> --main-class com.x.Main \
     --jar /Volumes/.../mylib.jar          # reuse a warm cluster for iteration
 hermes databricks job show <run_id>
@@ -207,6 +208,13 @@ Things that are deliberate, and worth knowing before you change them:
 - **Workspace-admin does not imply Unity Catalog write.** A 403 on upload is
   re-labelled to say so, since the two permission systems are independent and
   the raw error does not explain the difference.
+- **A `spark_python_task` cannot load its `python_file` from a UC Volume,** and
+  the platform's error blames permissions instead. Proven live across 3 failed
+  runs plus a successful control: the same file at `/Workspace/...` succeeds on
+  an identical cluster spec while `/Volumes/...` fails even when you own the
+  volume and hold explicit `READ_VOLUME`. `job submit` rejects a Volume
+  python_file up front rather than spending ~5 minutes of cluster startup to
+  reach a misleading message. JAR libraries from `/Volumes` are unaffected.
 
 Rationale for each is expanded in [docs/architecture.md](docs/architecture.md).
 
@@ -214,7 +222,7 @@ Rationale for each is expanded in [docs/architecture.md](docs/architecture.md).
 
 ```bash
 ./install.sh --symlink            # live-edit the repo as the installed plugin
-python -m pytest tests/ -q        # 95 tests, stdlib + pytest, no network
+python -m pytest tests/ -q        # 100 tests, stdlib + pytest, no network
 ```
 
 Tests exercise the API layer against recorded response shapes; nothing reaches

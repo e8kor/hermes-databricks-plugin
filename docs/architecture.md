@@ -1,6 +1,6 @@
 # Architecture
 
-Standard library only. ~3,000 lines across nine modules, no third-party imports —
+Standard library only. ~4,300 lines across twelve modules, no third-party imports —
 HTTP is `urllib.request`, JSON is `json`, CSV is `csv`. The plugin installs as a
 directory into a Hermes profile, and requiring a `pip install` there would be a
 support burden nobody wants.
@@ -23,11 +23,25 @@ support burden nobody wants.
 | `api.py` | Databricks REST: statement execution, chunk streaming, Unity Catalog |
 | `config.py` | Workspace resolution, token minting, the token cache |
 | `profiles.py` | Databricks CLI profile discovery and warehouse listing |
+| `compute.py` | Cluster lifecycle, library install, UC Volume file upload |
+| `jobs.py` | Job runs: submit, poll, output. Judges on `result_state` |
 | `cli.py` | The `hermes databricks` argparse tree |
+| `compute_cli.py` | The `cluster`/`library`/`job` trees + spend confirmations |
 | `slash.py` | `/databricks` dispatch plus the human-facing table renderers |
 
+`compute.py` and `jobs.py` reuse `api._request`, so they inherit the same token
+minting, HTTP error surfacing, and workspace resolution as the query path — no
+second auth mechanism exists.
+
+**Compute has no model tools, deliberately.** Clusters and job runs cost money,
+so the entire `cluster`/`library`/`job` surface is CLI-only and lives in
+`compute_cli.py` behind an interactive confirmation. Nothing in a conversation
+can start billable compute via a tool call. This is the Footprint Ladder's rung 2
+(CLI command + skill) rather than rung 6 (new core tool).
+
 Dependency direction is one-way: `profiles` ← `config` ← `api` ← `tools` ←
-`__init__`, with `cli` and `slash` sitting on top of `tools`. Nothing lower imports
+`__init__`, with `cli` and `slash` sitting on top of `tools`. `compute` and
+`jobs` sit beside `tools` on `api`; `compute_cli` sits on both. Nothing lower imports
 anything higher.
 
 ## Registration
